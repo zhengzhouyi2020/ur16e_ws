@@ -1,0 +1,9 @@
+float64[] m_JointPos
+float64[] m_JointVel
+float64[] m_JointAcc
+float64[] m_Torque
+float64[] m_EndPos
+float64[] m_End_acc
+float64[] m_EndVel
+float64[] m_MotorPos
+float64[] m_MotorVel

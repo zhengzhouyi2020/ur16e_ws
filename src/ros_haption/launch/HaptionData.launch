@@ -1,0 +1,7 @@
+<launch>
+
+  <param name="/freq" type="int" value="1000"></param>
+  <node pkg="ros_haption" type="Frequency_Control1" name="HaptionFrequency" output="screen"/>
+  <node pkg="ros_haption" type="HaptionData" name="HaptionData"/>
+
+</launch>
