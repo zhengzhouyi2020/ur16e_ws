@@ -15,6 +15,7 @@ from src.real_control.script.robot_control import robot_client
 from src.real_control.script.ur16e_kinematics import Kinematic, mat2pose, get_Jacobi, axisangle2quat, pose2mat, \
     GravityCompensation
 
+
 # 这个程序使用过程中无法收敛
 def data_plot(ax, x, y, xlabel, ylabel, title="", color='r', is_grid=False):
     ax.plot(x, y, color=color, linestyle='-.')
@@ -25,6 +26,30 @@ def data_plot(ax, x, y, xlabel, ylabel, title="", color='r', is_grid=False):
     ax.spines['right'].set_linewidth(0.6)  # 设置坐标轴线宽
     ax.set_xlabel(xlabel, fontsize=15, labelpad=5)  # 设置横轴字体和距离坐标轴的距离
     ax.set_ylabel(ylabel, fontsize=15, labelpad=5)  # 设置横轴字体和距离坐标轴的距离
+
+
+def plot_data(pose_list, index=14):
+    """
+    @param pose_list: 所有的数据
+    @param index: 14 - 实际接触力 20 - 实际的测量力
+    @return:
+    """
+    l = np.array(pose_list)
+    length = [i for i in range(len(pose_list))]
+    fig = plt.figure()
+    ax1 = fig.add_subplot(231)
+    data_plot(ax1, x=length, y=l[:, index + 0], xlabel="step", ylabel="force_x  N", is_grid=True)
+    ax2 = fig.add_subplot(232)
+    data_plot(ax2, length, l[:, index + 1], "step", "force_y  N")
+    ax3 = fig.add_subplot(233)
+    data_plot(ax3, length, l[:, index + 2], "step", "force_z  N")
+    ax4 = fig.add_subplot(234)
+    data_plot(ax4, length, l[:, index + 3], "step", "torque_x  mN")
+    ax5 = fig.add_subplot(235)
+    data_plot(ax5, length, l[:, index + 4], "step", "torque_y  mN")
+    ax6 = fig.add_subplot(236)
+    data_plot(ax6, length, l[:, index + 5], "step", "torque_z  mN")
+    plt.show()
 
 
 ####
@@ -127,11 +152,12 @@ class Admittance_control:
 
         next_contact = np.dot(transform, [0, 0, delta_p, 1])  # 只在Z轴方向进行移动
         pose = np.array(
-            [next_contact[0], next_contact[1], next_contact[2], orientation[0], orientation[1], orientation[2], orientation[3]])
+            [next_contact[0], next_contact[1], next_contact[2], orientation[0], orientation[1], orientation[2],
+             orientation[3]])
 
         joint_angles = self.ik(pose)
 
-        force_pose = np.hstack([time_step, pose,joint_angles, self.actual_force])
+        force_pose = np.hstack([time_step, pose, joint_angles, self.actual_force])
         self.control_pose_list.append(force_pose)
 
         sum_angles = 0
@@ -150,6 +176,38 @@ class Admittance_control:
         self.index += 1
         if self.index == len(self.trajectory) - 1:
             self.over = True
+
+    def getActualPose(self):
+        q = self.rtde_r.getActualQ()  # 更新角度
+        transform = self.ur16e_kinematics.FKine(q)
+        return mat2pose(transform)  # 得到实际位置
+
+    def getNextPoint(self):
+        """
+        获取下一点运动的数据
+        @return:
+        """
+        return self.trajectory[self.index + 1]  # 期望轨迹数据
+
+    def getContactForce(self):
+        HexForce = self.force_client.call()  # 更新接触力
+        q = self.rtde_r.getActualQ()  # 更新角度
+        transform = self.ur16e_kinematics.FKine(q)
+        self.actual_force = GravityCompensation(transform[0:3, 0:3],
+                                                np.array(HexForce.forceData))
+
+    def setNextPoint(self, Zd):
+        """
+        @param Zd: 设置下一点Z方向的位置
+        @return:
+        """
+        self.trajectory[self.index + 1][2] = Zd
+
+    def getActualVel(self):
+        qd = self.rtde_r.getActualQd()
+        q = self.rtde_r.getActualQ()  # 更新角度
+        Jacobi = get_Jacobi(q)  # 雅可比矩阵
+        return Jacobi.dot(qd)  # 根据当前角速度计算实际速度
 
     def ik(self, pose):
         """
@@ -176,7 +234,7 @@ def main():
     m = 400
     k = 8
     ratio = 30
-    #b = 2 * ratio * math.sqrt(m * k)
+    # b = 2 * ratio * math.sqrt(m * k)
     b = 5000
     # b = 15000 20000 稳定时间长，控制效果不佳
     # b = 8000 10000 效果不错，
@@ -186,33 +244,11 @@ def main():
     while admittance_control.over is False:
         admittance_control.admittance(m=m, b=b, k=k)
 
-    path_name = '../data/' + datetime.now().strftime('%Y%m%d%H%M') + '_real_robot.csv'
+    path_name = '../data/' + datetime.now().strftime('%Y%m%d%H%M') + "_m" + str(
+        m) + "_b" + str(b) + "_k" + str(k) + '_real_robot.csv'
     pose_list = admittance_control.control_pose_list
     np.savetxt(path_name, X=pose_list, delimiter=',')
-
-    l = np.array(pose_list)
-    length = [i for i in range(len(pose_list))]
-    fig = plt.figure()
-    ax1 = fig.add_subplot(231)
-    index = 14
-    data_plot(ax1, x=length, y=l[:, index + 0], xlabel="step", ylabel="force_x  N", is_grid=True)
-
-    ax2 = fig.add_subplot(232)
-    data_plot(ax2, length, l[:, index + 1], "step", "force_y  N")
-
-    ax3 = fig.add_subplot(233)
-    data_plot(ax3, length, l[:, index + 2], "step", "force_z  N")
-
-    ax4 = fig.add_subplot(234)
-    data_plot(ax4, length, l[:, index + 3], "step", "torque_x  mN")
-
-    ax5 = fig.add_subplot(235)
-    data_plot(ax5, length, l[:, index + 4], "step", "torque_y  mN")
-
-    ax6 = fig.add_subplot(236)
-    data_plot(ax6, length, l[:, index + 5], "step", "torque_z  mN")
-
-    plt.show()
+    plot_data(pose_list)
 
 
 if __name__ == '__main__':
