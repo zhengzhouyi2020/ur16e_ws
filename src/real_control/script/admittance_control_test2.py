@@ -10,10 +10,12 @@ import numpy as np
 import rospy
 import rtde_receive
 
+from real_control.msg import Force
 from real_control.srv import ForceAndTorque
 from src.real_control.script.robot_control import robot_client
 from src.real_control.script.ur16e_kinematics import Kinematic, mat2pose, get_Jacobi, axisangle2quat, pose2mat, \
     GravityCompensation
+
 
 # 这个程序使用过程中无法收敛
 def data_plot(ax, x, y, xlabel, ylabel, title="", color='r', is_grid=False):
@@ -127,11 +129,12 @@ class Admittance_control:
 
         next_contact = np.dot(transform, [0, 0, delta_p, 1])  # 只在Z轴方向进行移动
         pose = np.array(
-            [next_contact[0], next_contact[1], next_contact[2], orientation[0], orientation[1], orientation[2], orientation[3]])
+            [next_contact[0], next_contact[1], next_contact[2], orientation[0], orientation[1], orientation[2],
+             orientation[3]])
 
         joint_angles = self.ik(pose)
 
-        force_pose = np.hstack([time_step, pose,joint_angles, self.actual_force])
+        force_pose = np.hstack([time_step, pose, joint_angles, self.actual_force])
         self.control_pose_list.append(force_pose)
 
         sum_angles = 0
@@ -176,7 +179,7 @@ def main():
     m = 100
     k = 100
     ratio = 30
-    #b = 2 * ratio * math.sqrt(m * k)
+    # b = 2 * ratio * math.sqrt(m * k)
     b = 400
     while admittance_control.over is False:
         admittance_control.admittance(m=m, b=b, k=k)
@@ -208,7 +211,34 @@ def main():
     data_plot(ax6, length, l[:, index + 5], "step", "torque_z  mN")
 
     plt.show()
+rospy.init_node("test_node")
+def test():
+    # 直接用wait_for_message进行通信，加快通信效率
+    F = []
+    for i in range(100):
+        f = rospy.wait_for_message("/force_data", Force)
+        # print(f.timeStamp)
+        F.append(f.forceData[2])
+    print(datetime.now())
+    l = [i for i in range(len(F))]
+    plt.plot(l, F)
+    plt.show()
 
+
+def test2():
+    force_client = rospy.ServiceProxy('/server_for_force', ForceAndTorque)  # 通过服务得到六维力数据
+    F = []
+    for i in range(1000):
+        f = force_client.call()
+        # print(f.timeStamp)
+        F.append(f.forceData[2])
+    print(datetime.now())
+    l = [i for i in range(len(F))]
+    plt.plot(l, F)
+    plt.show()
 
 if __name__ == '__main__':
-    main()
+    #  main()
+    # test2()
+    test2()
+

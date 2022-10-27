@@ -1,24 +1,22 @@
 #include <publish_force_data/publish_data.hpp>
 
-ForcePublish::ForcePublish(NodeHandle& nh, int frequency, int packetNum, int maxPacketNum,int filter):nh(nh) {
+ForcePublish::ForcePublish(NodeHandle nh, int frequency, int packetNum, int maxPacketNum,int filter):nh(nh) {
     // 注册服务
 
     service =nh.advertiseService("server_for_force",&ForcePublish::publishData,this);
-
     timeTemp = 0L;
-    
+
     watcher.Start();
     OptoDAQDescriptor descriptor;// 初始化一个采集卡描述对象
     //"64": 6-axis DAQ 设置为六维力的模式
-    descriptor.SetTypeName("64");
     while(true){
         if (watcher.GetFirstDAQ(&descriptor) == true) {  //发现的第一个数据采集卡,一直等待连接
-            std::cout<<"connected to the force sensor"<<std::endl; 
+            std::cout<<"connected to the force sensor"<<std::endl;
             break;
         }
     }
-    
 
+    descriptor.SetTypeName("64");
     //初始化数据采集对象,能够持有数据包的最大计数10个,多的将被舍去
     optoDAQ = OptoDAQ(descriptor,maxPacketNum);
     if(optoDAQ.Open()){
@@ -90,6 +88,7 @@ int main(int argc, char** argv) {
     ros::init(argc, argv, "force_service_node");
     ros::NodeHandle nh;
     ForcePublish forcePublish(nh);
+    std::cout<<"OK"<<std::endl;
     while (ok()) {
         forcePublish.getForceData();
         spinOnce();

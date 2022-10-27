@@ -18,7 +18,7 @@ from src.real_control.script.ur16e_kinematics import Kinematic, mat2pose, get_Ja
 
 # 这个程序使用过程中无法收敛
 def data_plot(ax, x, y, xlabel, ylabel, title="", color='r', is_grid=False):
-    ax.plot(x, y, color=color, linestyle='-.')
+    ax.plot(x, y, color=color, linestyle='-')
     ax.set_title(title)
     ax.spines['right'].set_visible(False)  # 设置右侧坐标轴不可见
     ax.spines['top'].set_visible(False)  # 设置上坐标轴不可见
@@ -69,6 +69,7 @@ class Admittance_control:
         """
         考虑笛卡尔空间坐标系的阻抗控制
         """
+        self.time_step = 0
         self.pre_d_p = 0
         self.pre_p = 0
         self.over = False
@@ -119,9 +120,11 @@ class Admittance_control:
         self.pre_vel = [0, 0, 0]
         self.robot_command.move_to_joint(qpos, 5)  # 关节位移控制，
 
-    def admittance(self, m, b, k):
-        desire_pose = self.trajectory[self.index + 1]  # 期望轨迹数据
-        position, orientation = desire_pose[:3], desire_pose[3:7]  # TODO 数据格式注意
+    def update(self):
+
+        # 先更新力，再获取关节位置
+        HexForce = self.force_client.call()  # 更新接触力
+        self.time_step = HexForce.timeStamp
 
         self.actual_q = self.rtde_r.getActualQ()  # 更新角度
         self.actual_qd = self.rtde_r.getActualQd()  # 更新角速度
@@ -131,15 +134,18 @@ class Admittance_control:
         Jacobi = get_Jacobi(self.actual_q)  # 雅可比矩阵
         self.actual_vel = Jacobi.dot(self.actual_qd)  # 根据当前角速度计算实际速度
 
-        HexForce = self.force_client.call()  # 更新接触力
-        time_step = HexForce.timeStamp
         self.actual_force = GravityCompensation(transform[0:3, 0:3],
                                                 np.array(HexForce.forceData))
+
+    # 在执行admittance前必须先执行update()程序
+    def admittance(self, m, b, k):
+        desire_pose = self.trajectory[self.index + 1]  # 期望轨迹数据
+
+        position, orientation = desire_pose[:3], desire_pose[3:7]  # TODO 数据格式注意
 
         # TODO 姿态阻抗有点难度，主要是力矩变换成基坐标系的难度
         # 直接在Z轴上进行补偿
         delta_F_tool = self.actual_force[2] - self.expect_force  # 与期望力偏差，只考虑法向力的作用
-
         # TODO 这里默认期望速度和期望加速度为零，进行阻抗计算
         delta_dd_p = 1 / m * (delta_F_tool - b * self.pre_d_p - k * self.pre_p)
         delta_d_p = self.pre_d_p + delta_dd_p * self.control_step
@@ -157,7 +163,7 @@ class Admittance_control:
 
         joint_angles = self.ik(pose)
 
-        force_pose = np.hstack([time_step, pose, joint_angles, self.actual_force])
+        force_pose = np.hstack([self.time_step, pose, joint_angles, self.actual_force])
         self.control_pose_list.append(force_pose)
 
         sum_angles = 0
@@ -166,13 +172,13 @@ class Admittance_control:
             sum_angles = sum_angles + math.fabs(joint_angles[i] - self.actual_q[i])
 
         if math.fabs(self.actual_force[2]) > 50 or sum_angles > math.pi / 4 or math.fabs(
-                delta_p) > 0.008:
+                delta_p) > 0.006:
             print("angle:{}".format(sum_angles))
             print("position:{}".format(delta_p))
             print("force:{}".format(math.fabs(self.actual_force[2])))
             print("please check your parameter!")
             exit(0)
-        self.robot_command.move_to_joint(joint_angles, self.control_step)
+        self.robot_command.move_to_joint(joint_angles, self.control_step,wait=False)
         self.index += 1
         if self.index == len(self.trajectory) - 1:
             self.over = True
@@ -188,13 +194,6 @@ class Admittance_control:
         @return:
         """
         return self.trajectory[self.index + 1]  # 期望轨迹数据
-
-    def getContactForce(self):
-        HexForce = self.force_client.call()  # 更新接触力
-        q = self.rtde_r.getActualQ()  # 更新角度
-        transform = self.ur16e_kinematics.FKine(q)
-        self.actual_force = GravityCompensation(transform[0:3, 0:3],
-                                                np.array(HexForce.forceData))
 
     def setNextPoint(self, Zd):
         """
@@ -222,32 +221,43 @@ class Admittance_control:
 
 
 def main():
-    file_name = "../data/202207182040_robot.csv"
+    file_name = "../data/20221021/202210211016_robot.csv"
 
     rospy.init_node("control_node")
     rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.11")
     data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
+    file_2 = "trajectory.csv"
     init_angle = data[0, 8:14]
-    trajectory = data[:, 1:8]
-    print(init_angle)
-    admittance_control = Admittance_control(rtde_r, trajectory=trajectory, expect_force=-15, init_point=init_angle)
+    # trajectory = data[:, 1:8]
+    #
+    # file_2 = "trajectory2.csv"
+    # init_angle = [0.26145,-1.5196,-1.98123,-1.22225,1.57067,-0.554393]
+
+    temp = np.loadtxt(open(file_2, "rb"), delimiter=",", skiprows=1)
+    trajectory = temp
+
+    admittance_control = Admittance_control(rtde_r, trajectory=trajectory, expect_force=-20, init_point=init_angle)
     m = 400
-    k = 8
+    k = 500
+    ## k = 2000时开始出现稳态误差
     ratio = 30
     # b = 2 * ratio * math.sqrt(m * k)
-    b = 5000
+    b =7500
     # b = 15000 20000 稳定时间长，控制效果不佳
     # b = 8000 10000 效果不错，
     # b = 5000 超调量有点大
 
     # 最优参数 800 40000
     while admittance_control.over is False:
+        admittance_control.update()
         admittance_control.admittance(m=m, b=b, k=k)
 
-    path_name = '../data/' + datetime.now().strftime('%Y%m%d%H%M') + "_m" + str(
+    path_name = '../data/20221027/' + datetime.now().strftime('%Y%m%d%H%M') + "_m" + str(
         m) + "_b" + str(b) + "_k" + str(k) + '_real_robot.csv'
     pose_list = admittance_control.control_pose_list
-    np.savetxt(path_name, X=pose_list, delimiter=',')
+    np.savetxt(path_name, X=pose_list, fmt="%.6f", delimiter=',')
+    end_angle = [0.366, -1.67, -1.625, -1.428316981797554, 1.572, -0.358]
+    admittance_control.robot_command.move_to_joint(end_angle, 5)
     plot_data(pose_list)
 
 

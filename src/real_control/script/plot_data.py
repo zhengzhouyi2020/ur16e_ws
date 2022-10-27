@@ -6,9 +6,12 @@ import numpy as np
 import rtde_receive
 from matplotlib import pyplot as plt
 
+plt.rcParams['font.family'] = 'Times New Roman'  # 全局字体样式
+plt.rcParams['font.size'] = 15  # 全局字体大小
+plt.rcParams['axes.linewidth'] = 1
+
 
 def data_plot(ax, x, y, xlabel, ylabel, title="", color='r', is_grid=False):
-
     ax.plot(x, y, color=color, linestyle='-')
     ax.set_title(title)
     ax.spines['right'].set_visible(False)  # 设置右侧坐标轴不可见
@@ -19,12 +22,13 @@ def data_plot(ax, x, y, xlabel, ylabel, title="", color='r', is_grid=False):
     ax.set_ylabel(ylabel, fontsize=15, labelpad=5)  # 设置横轴字体和距离坐标轴的距离
 
 
-file_name = "../data/202207182115_real_robot_m400_b5000_k8_r1600_f15.csv"
+file_name = "../data/20221021/202210212224_m400_b5000_k800_lyaAdv_real_robot.csv"
 data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
 
 index = 14
 l = np.array(data)
 length = [i * 0.02 for i in range(len(data))]
+averge = np.ones((len(data),1)) * -17.75
 fig = plt.figure()
 # ax1 = fig.add_subplot(231)
 # data_plot(ax1, x=length, y=l[:, 0 + index], xlabel="step", ylabel="force_x  N", is_grid=True)
@@ -46,6 +50,7 @@ fig = plt.figure()
 
 
 ax1 = fig.add_subplot(111)
-data_plot(ax1, length, l[:, 2 + index],"step", "force_z  N", title= "m400_b5000_k8_r1600_f15")
+data_plot(ax1, length, l[:, 2 + index], "step(s)", "force_z(N)", title="result")
+ax1.plot(length,averge)
 
 plt.show()

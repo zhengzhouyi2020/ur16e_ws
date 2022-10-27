@@ -25,8 +25,8 @@ from src.real_control.script.ur16e_kinematics import axisangle2quat, quat2mat, G
 # 20-26 测量力
 
 EPS = 1e-6
-if not os.path.exists('./data'):
-    os.mkdir('./data')
+if not os.path.exists('../data/20221021'):
+    os.mkdir('../data/20221021')
 
 ur16e = Kinematic()
 
@@ -37,7 +37,7 @@ def main():
     rospy.wait_for_service('/server_for_force')
 
     force_client = rospy.ServiceProxy('/server_for_force', ForceAndTorque)
-    f = open('../data/' + datetime.now().strftime('%Y%m%d%H%M') + '_robot.csv', 'w',
+    f = open('../data/20221021/' + datetime.now().strftime('%Y%m%d%H%M') + '_robot.csv', 'w',
              encoding='utf - 8', newline='')
     csv_writer = csv.writer(f)
     csv_writer.writerow(
@@ -52,6 +52,7 @@ def main():
         # actual_p = rtde_r.getActualTCPPose()  # 可以设置TCP的偏置
         # quat = axisangle2quat(actual_p[3:])
         # R = quat2mat(quat)
+        print(HexForce)
         actual_q = rtde_r.getActualQ()
         Transform = ur16e.FKine(actual_q)
         actual_p = mat2pose(Transform)

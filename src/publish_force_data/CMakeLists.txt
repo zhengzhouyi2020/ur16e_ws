@@ -54,6 +54,7 @@ find_package(ur_rtde REQUIRED)
 add_message_files(
    FILES
    HaptionData.msg
+   Force.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -148,6 +149,13 @@ target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
   OptoForceAPI
 )
+
+add_executable(publish_force_node src/publish_force.cpp)
+target_link_libraries(publish_force_node
+  ${catkin_LIBRARIES}
+  OptoForceAPI
+)
+
 
 add_executable(client_for_data src/client_data.cpp)
 target_link_libraries(client_for_data

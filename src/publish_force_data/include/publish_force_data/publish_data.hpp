@@ -16,7 +16,7 @@ using namespace ros;
 
 class ForcePublish {
     public:
-        explicit ForcePublish(NodeHandle& nh, int frequency = 500, int packetNum = 5, int maxPacketNum = 10,int filter = 6);
+        explicit ForcePublish(NodeHandle nh, int frequency = 500, int packetNum =5, int maxPacketNum = 10,int filter = 6);
         ~ForcePublish();
 
         void getForceData();
@@ -30,7 +30,7 @@ class ForcePublish {
         long long timeTemp;  // 从采集卡中得到的时间,单位是微秒
 
         /*创建一个OptoDAQWatcher实例，通过USB连接获得DAQs*/
-        OptoDAQWatcher watcher;  
+        OptoDAQWatcher watcher;
         OptoDAQ  optoDAQ; // 初始化数据采集对象
         OptoPackets6D packets; // 采集力的数据包,
         OptoPacket6D packet;  // 单个数据包

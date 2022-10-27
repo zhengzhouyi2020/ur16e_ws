@@ -14,8 +14,7 @@ import numpy as np
 import rtde_receive
 import rtde_control
 
-tre = rtde_control("1234")
-tre.addEntry()
+
 
 frequency = 125
 PI = math.pi
