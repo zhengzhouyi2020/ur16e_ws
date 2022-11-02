@@ -9,7 +9,10 @@ from torch.distributions import Normal
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-class Memory:  # collected from old policy
+
+
+#################### Replay Buffer ####################
+class Memory:
     def __init__(self):
         self.states = []
         self.actions = []

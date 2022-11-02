@@ -226,7 +226,7 @@ def main():
     rospy.init_node("control_node")
     rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.11")
     data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
-    file_2 = "trajectory.csv"
+    file_2 = "trajectory/trajectory.csv"
     init_angle = data[0, 8:14]
     # trajectory = data[:, 1:8]
     #

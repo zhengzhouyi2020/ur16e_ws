@@ -73,13 +73,13 @@ def main():
     plt.rcParams['font.family'] = 'Times New Roman'  # 全局字体样式
     plt.rcParams['font.size'] = 15  # 全局字体大小
     plt.rcParams['axes.linewidth'] = 1
-    file_name = "../real_control/data/20221021/202210211022_m400_b10000_k200_real_robot.csv"
+    file_name = "../real_control/data/20221027/202210271645_m400_b7500_k500_LyaAdv_real_robot.csv"
     data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
-    pose_z = data[:, 3]
-    force_z = data[:, 16]
+    pose_z = data[:350, 3]
+    force_z = data[:350, 16]
     datas = []
-    print(len(pose_z))
-    RLS = RELSEstimation(0.90, 0.259917, 0.02)
+
+    RLS = RELSEstimation(0.95, 0.259917, 0.02)
     for i in range(len(pose_z)):
         data = RLS.getStiffness(pose_z[i], force_z[i])
         datas.append(data)
@@ -91,6 +91,8 @@ def main():
     plt.xlabel("time(s)")
     plt.ylabel("K(N/m)")
     plt.show()
+    datas = datas.reshape((-1,2))
+    np.savetxt("RLSEstimation.csv", X=datas, fmt="%.6f",delimiter=',')
 
     # plt.plot(-pose_z, -force_z)
     # plt.show()

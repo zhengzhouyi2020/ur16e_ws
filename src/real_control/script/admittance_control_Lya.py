@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # @Time : 2022/6/14
 # @Author : Zzy
-import math
+
 from datetime import datetime
 
 import matplotlib.pyplot as plt
@@ -10,11 +10,9 @@ import numpy as np
 import rospy
 import rtde_receive
 
-from real_control.srv import ForceAndTorque
+
 from src.real_control.script.admittance_control_release import Admittance_control
-from src.real_control.script.robot_control import robot_client
-from src.real_control.script.ur16e_kinematics import Kinematic, mat2pose, get_Jacobi, axisangle2quat, pose2mat, \
-    GravityCompensation
+
 
 # 这个程序使用过程中无法收敛
 from src.utils.LyapunovEstimation import LyapunovEstimation
@@ -76,7 +74,7 @@ def main():
     rospy.init_node("control_node")
     rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.11")
     data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
-    file_2 = "trajectory.csv"
+    file_2 = "trajectory/trajectory.csv"
     init_angle = data[0, 8:14]
     # trajectory = data[:, 1:8]
     #

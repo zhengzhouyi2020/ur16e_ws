@@ -6,20 +6,16 @@
 from actionlib import SimpleActionClient
 from control_msgs.msg import FollowJointTrajectoryGoal, FollowJointTrajectoryAction
 from std_msgs.msg import Header
-from sensor_msgs.msg import JointState
-from trajectory_msgs.msg import JointTrajectoryPoint, JointTrajectory
+from trajectory_msgs.msg import JointTrajectoryPoint
 import rospy
 import math
 import numpy as np
-import rtde_receive
-import rtde_control
-
-
 
 frequency = 125
 PI = math.pi
 
 
+#################### 用于UR16e单点控制 ####################
 class robot_client:
     def __init__(self):
         self.arm_client = SimpleActionClient("/scaled_pos_joint_traj_controller/follow_joint_trajectory",
@@ -36,6 +32,8 @@ class robot_client:
 
     def move_to_joint(self, joint_target, time1=1.0, wait=True):
         """
+        @param time1: 运动时间
+        @param joint_target: 目标关节位置
         @param wait: 是否阻塞
         """
         self.arm_cmd.trajectory.header = Header()
@@ -73,4 +71,4 @@ if __name__ == '__main__':
     data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
     init_angle = data[0, 8:14]
 
-    robot.move_to_joint(init_angle, time1 = 10)
+    robot.move_to_joint(init_angle, time1=10)
