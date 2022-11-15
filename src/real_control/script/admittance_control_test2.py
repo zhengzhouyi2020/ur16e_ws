@@ -3,6 +3,7 @@
 # @Time : 2022/6/14
 # @Author : Zzy
 import math
+import threading
 from datetime import datetime
 
 import matplotlib.pyplot as plt
@@ -211,18 +212,38 @@ def main():
     data_plot(ax6, length, l[:, index + 5], "step", "torque_z  mN")
 
     plt.show()
+
+
 rospy.init_node("test_node")
+
+# 测试三种接受力数据的方式
+# 直接用wait_for_message进行通信，加快通信效率
 def test():
-    # 直接用wait_for_message进行通信，加快通信效率
     F = []
     for i in range(100):
         f = rospy.wait_for_message("/force_data", Force)
-        # print(f.timeStamp)
+        print(f.timeStamp)
         F.append(f.forceData[2])
     print(datetime.now())
     l = [i for i in range(len(F))]
     plt.plot(l, F)
     plt.show()
+
+
+## 采用多线程的方式进行话题的接受
+def thread_job():
+    # print("ROSspin has started")
+    rospy.spin()
+
+
+def callback(msg):
+    print(msg.timeStamp)
+
+# 直接用wait_for_message进行通信，加快通信效率,测试后可行，可以利用多线程进行机器人力读取
+def test3():
+    sub = rospy.Subscriber("/force_data", Force, callback)
+    thread_rosspin = threading.Thread(target=thread_job)
+    thread_rosspin.start()
 
 
 def test2():
@@ -237,8 +258,12 @@ def test2():
     plt.plot(l, F)
     plt.show()
 
+
 if __name__ == '__main__':
     #  main()
     # test2()
-    test2()
+    test3()
+    while True:
+        print("ok")
+        rospy.sleep(0.1)
 

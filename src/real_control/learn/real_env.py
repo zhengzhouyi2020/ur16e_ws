@@ -16,6 +16,7 @@ from src.real_control.script.ur16e_kinematics import Kinematic, mat2pose, get_Ja
 
 
 # 数据记录格式 0-时间 1-8 位姿 8-14 关节角 14-20 实际接触力 20-26 测量力
+from src.utils.LyapunovEstimation import LyapunovEstimationImprove
 
 
 class RealEnv:
@@ -51,6 +52,8 @@ class RealEnv:
 
         self.ur16e_kinematics = Kinematic()  # 正逆运动学
         self.init_point = init_point  # 初始运动控制点
+        self.lya = None
+
 
         self.trajectory = trajectory  # 参考轨迹
         self.expect_force = expect_force  # 参考力 1  向量
@@ -63,6 +66,7 @@ class RealEnv:
         self.calculateVel()
         print("Init success now")
 
+
     def calculateVel(self):
         # 计算工件轮廓的速度，只计算Z方向的速度
         for i in range(len(self.trajectory)):
@@ -74,15 +78,20 @@ class RealEnv:
                 self.desire_vel[i] = (self.trajectory[i + 1, 2] - self.trajectory[i - 1, 2]) / (self.control_step * 2)
 
     def reset(self):
-        self.robot_command.move_to_joint(self.init_point, 5)  # 关节位移控制，回到初始位置
+        self.lya = LyapunovEstimationImprove(alpha=0.4, beta=0.4, gamma=0.1, initKe=7750, initXe=0.260950, dt=0.02,
+                                             Fd=-20)
+        self.robot_command.move_to_joint(self.init_point, 3)  # 关节位移控制，回到初始位置
+        self.pre_p = 0
+        self.pre_d_p = 0
         self.update()  # 在训练开始前先进行数据更新
         self.index = 0
+        return self._get_obs()
 
     def step(self, action):
 
         self.admittance(action)  # 更新了当前位置，当前速度，当前力
         self.update()  # 需要更新力、位置等信息
-        self.delta_force = abs(self.actual_force[2] - self.expect_force)
+        self.delta_force = self.actual_force[2] - self.expect_force
 
         observation = self._get_obs()
         reward = self._get_reward()
@@ -106,12 +115,21 @@ class RealEnv:
         self.actual_force = GravityCompensation(transform[0:3, 0:3],
                                                 np.array(HexForce.forceData))
 
+        # 使用李雅普诺夫方法进行位姿态调整
+        F = self.actual_force[2]
+        pose_Z = self.actual_pose[2]
+        if self.index <= 350 or self.index >= 540:
+            v = 0
+        else:
+            v = -0.00141
+        Zd = self.lya.getTraject(F, pose_Z, self.expect_force,v)
+        self.trajectory[self.index + 1][2] = Zd  # 轨迹调整
+
     # 需要考虑实时更新数据和进行控制的先后顺序，获取数据有时间限制
     def admittance(self, action):
         # TODO 可能在原有的基础上添加会更好点 k = k + delta_k b = b + delta_b
-
-        self.m = 500 + action * 300
-        self.b = 80000 + action * 30000
+        b = self.b + action[0] * 100
+        k = self.k + action[1] * 1000
 
         desire_pose = self.trajectory[self.index + 1]  # 期望轨迹数据
         orientation = desire_pose[3:7]  # 方向数据
@@ -120,13 +138,13 @@ class RealEnv:
 
         # 阻抗控制核心计算控制律
         # 默认期望速度和期望加速度为0，在法向上的打磨的速度比较慢
-        delta_dd_p = 1 / self.m * (delta_F_tool - self.b * self.pre_d_p - self.k * self.pre_p)
+        delta_dd_p = 1 / self.m * (delta_F_tool - b * self.pre_d_p - k * self.pre_p)
         delta_d_p = self.pre_d_p + delta_dd_p * self.control_step
         delta_p = self.pre_p + delta_d_p * self.control_step
 
         self.pre_p = delta_p
         self.pre_d_p = delta_d_p  # 供新一轮的迭代
-
+        self.delta_x = self.pre_p
         transform = pose2mat(self.trajectory[self.index + 1])
 
         next_contact = np.dot(transform, [0, 0, delta_p, 1])  # 只在Z轴方向进行移动
@@ -148,6 +166,8 @@ class RealEnv:
             print("position:{}".format(delta_p))
             print("force:{}".format(math.fabs(self.actual_force[2])))
             print("please check your parameter!")
+            print(self.index)
+            print(self.expect_force)
             self.robot_command.move_to_joint(self.init_point, 10)  # 关节位移控制，回到初始位置，防止出现危险
             exit(0)
 
@@ -168,17 +188,19 @@ class RealEnv:
     def _get_obs(self):
         # TODO
         """
-        状态空间
+        状态空间,尽可能让他们处于同一数量级
         @return: 
         """
-        return np.array([self.delta_x, self.delta_force], dtype=np.float32)
+        return np.array([(self.actual_pose[0] - 0.25)*1000,self.pre_p * 1000, self.delta_force], dtype=np.float32)
 
     def _get_reward(self):
         #  TODO 奖励函数的设置
         if self.delta_force > 10:
             reward = -5
         else:
-            reward = 1 / (0.1 + 0.1 * self.delta_force)
+            reward = 1/(0.1+0.03*abs(self.delta_force))+1/(0.2+160*abs(self.pre_p))
+        if self.index == len(self.trajectory - 1):
+            reward += 5
         return reward
 
     def _get_info(self):
@@ -187,9 +209,13 @@ class RealEnv:
         info['force'] = self.actual_force
         info['m'] = self.m
         info['b'] = self.b
+        info['pos'] = self.actual_pose
         return info
 
     def _get_done(self):
-        if self.index == len(self.trajectory) - 1 or self.delta_force > 30:
+        if self.index == len(self.trajectory) - 2 or self.delta_force > 30:
             return True
         return False
+
+    def setExpectForce(self,expect_force):
+        self.expect_force = expect_force

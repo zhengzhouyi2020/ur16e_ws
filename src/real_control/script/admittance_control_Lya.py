@@ -10,12 +10,15 @@ import numpy as np
 import rospy
 import rtde_receive
 
-
 from src.real_control.script.admittance_control_release import Admittance_control
+import os
 
-
-# 这个程序使用过程中无法收敛
 from src.utils.LyapunovEstimation import LyapunovEstimation
+from src.utils.NTD import NTD
+
+save_path = '../data/' + datetime.now().strftime('%Y%m%d')
+if not os.path.exists(save_path):
+    os.mkdir(save_path)
 
 
 def data_plot(ax, x, y, xlabel, ylabel, title="", color='r', is_grid=False):
@@ -73,6 +76,8 @@ def main():
     b = 7500  # 阻尼系数
     rospy.init_node("control_node")
     rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.11")
+
+    #### 运动轨迹 ####
     data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
     file_2 = "trajectory/trajectory.csv"
     init_angle = data[0, 8:14]
@@ -84,20 +89,30 @@ def main():
     temp = np.loadtxt(open(file_2, "rb"), delimiter=",", skiprows=1)
     trajectory = temp
 
-    lya = LyapunovEstimation(alpha = 1.8, beta = 1.8, initKe=7750, initXe=0.260950,dt = 0.02,Fd = -20)
+    #### 生成前几秒的期望力 ####
+    ntd = NTD(T=0.02, r=100, h=0.1, expect_force=-20)
+    feed_force = ntd.getResult(2)  # 得到前反馈力的表达式
+
+    lya = LyapunovEstimation(alpha=1.8, beta=1.8, initKe=7750, initXe=0.260950, dt=0.02, Fd=-20)
     admittance_control = Admittance_control(rtde_r, trajectory=trajectory, expect_force=-20, init_point=init_angle)
+    i = 0
     while admittance_control.over is False:
+        # 设置变化的期望力，以免引起冲击振荡
+        if i < len(feed_force):
+            admittance_control.setExpectForce(feed_force[i])
+            i = i + 1
         admittance_control.update()
         F = admittance_control.actual_force[2]
         pose_Z = admittance_control.actual_pose[2]
         Zd = lya.getTraject(F, pose_Z)
-        admittance_control.setNextPoint(Zd)
+        admittance_control.setNextPoint(Zd)  # 进行期望位置的调整
         admittance_control.admittance(m=m, b=b, k=k)
     lya.finish()
-    path_name = '../data/20221027/' + datetime.now().strftime('%Y%m%d%H%M') + "_m" + str(
+    path_name = '../data/' + datetime.now().strftime('%Y%m%d') + '/' + datetime.now().strftime(
+        '%Y%m%d%H%M') + "_m" + str(
         m) + "_b" + str(b) + "_k" + str(k) + '_Lya_real_robot.csv'
     pose_list = admittance_control.control_pose_list
-    np.savetxt(path_name, X=pose_list, fmt="%.6f",delimiter=',')
+    np.savetxt(path_name, X=pose_list, fmt="%.6f", delimiter=',')
     end_angle = [0.366, -1.67, -1.625, -1.428316981797554, 1.572, -0.358]
     admittance_control.robot_command.move_to_joint(end_angle, 5)
     plot_data(pose_list)

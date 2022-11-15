@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 # @Time : 2022/5/4
 # @Author : Zzy
+import datetime
+
 import torch
 from torch import nn
-from torch.distributions import Normal
+from torch.distributions import MultivariateNormal
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
 
 
 #################### Replay Buffer ####################
@@ -35,26 +35,30 @@ class ActorCritic(nn.Module):
         self.actor = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
-            nn.Linear(64, 32),
+            nn.Linear(64, 64),
             nn.Tanh(),
-            nn.Linear(32, action_dim),
+            nn.Linear(64, action_dim),
             nn.Tanh()
         )
 
         self.critic = nn.Sequential(
             nn.Linear(state_dim, 64),
             nn.Tanh(),
-            nn.Linear(64, 32),
+            nn.Linear(64, 64),
             nn.Tanh(),
-            nn.Linear(32, 1)
+            nn.Linear(64, 1)
         )
 
         self.action_var = torch.full((action_dim,), action_std * action_std).to(device)  # (4, )
+        self.action_dim = action_dim
+
+    def set_action_std(self, new_action_std):
+        self.action_var = torch.full((self.action_dim,), new_action_std * new_action_std).to(device)
 
     def act(self, state, memory):  # state (1,24)
         action_mean = self.actor(state)  # (1,4)
         cov_mat = torch.diag(self.action_var).to(device)  # (4,4)
-        dist = Normal(action_mean, cov_mat)  # 这里当使用多维的时候，MultivariateNormal有修改
+        dist = MultivariateNormal(action_mean, cov_mat)  # 这里当使用多维的时候，MultivariateNormal有修改
         action = dist.sample()  # (1,4)
         action_logprob = dist.log_prob(action)
 
@@ -71,7 +75,7 @@ class ActorCritic(nn.Module):
         action_mean = self.actor(state)  # (4000,4)
         action_var = self.action_var.expand_as(action_mean)  # (4000,4)
         cov_mat = torch.diag_embed(action_var).to(device)  # (4000,4,4)
-        dist = Normal(action_mean, cov_mat)
+        dist = MultivariateNormal(action_mean, cov_mat)
         action_logprobs = dist.log_prob(action)
         dist_entropy = dist.entropy()
 
@@ -93,12 +97,26 @@ class PPO:
             pretained_model = torch.load(ckpt, map_location=lambda storage, loc: storage)
             self.policy.load_state_dict(pretained_model)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr, betas=betas)
+        self.action_std = action_std
 
         # old policy: initialize old policy with current policy's parameter
         self.old_policy = ActorCritic(state_dim, action_dim, action_std).to(device)
         self.old_policy.load_state_dict(self.policy.state_dict())
 
         self.MSE_loss = nn.MSELoss()
+
+    def decay_action_std(self, action_std_decay_rate, min_action_std):
+        """
+        :param action_std_decay_rate: 动作的衰减数值
+        :param min_action_std:  最小动作的标准差
+        :return:
+        """
+        self.action_std = self.action_std - action_std_decay_rate
+        self.action_std = round(self.action_std, 4)
+        if self.action_std <= min_action_std:
+            self.action_std = min_action_std
+        self.policy.set_action_std(self.action_std)
+        self.old_policy.set_action_std(self.action_std)
 
     def select_action(self, state, memory):
         state = torch.FloatTensor(state.reshape(1, -1)).to(device)  # flatten the state
@@ -107,6 +125,7 @@ class PPO:
     def update(self, memory):
         # Monte Carlo estimation of rewards
         # 还有一种对应的方法是TD法
+
         rewards = []
         discounted_reward = 0
         for reward, is_terminal in zip(reversed(memory.rewards), reversed(memory.is_terminals)):
@@ -123,7 +142,6 @@ class PPO:
         old_states = torch.squeeze(torch.stack(memory.states).to(device)).detach()
         old_actions = torch.squeeze(torch.stack(memory.actions).to(device)).detach()
         old_logprobs = torch.squeeze(torch.stack(memory.logprobs)).to(device).detach()
-
         # Train policy for K epochs: sampling and updating
         for _ in range(self.K_epochs):
             # Evaluate old actions and values using current policy

@@ -10,14 +10,16 @@ import numpy as np
 import rospy
 import rtde_receive
 
-from real_control.srv import ForceAndTorque
 from src.real_control.script.admittance_control_release import Admittance_control
-from src.real_control.script.robot_control import robot_client
-from src.real_control.script.ur16e_kinematics import Kinematic, mat2pose, get_Jacobi, axisangle2quat, pose2mat, \
-    GravityCompensation
 
-# 这个程序使用过程中无法收敛
-from src.utils.LyapunovEstimation import  LyapunovEstimationImprove
+from src.utils.LyapunovEstimation import LyapunovEstimationImprove
+import os
+
+from src.utils.NTD import NTD
+
+save_path = '../data/' + datetime.now().strftime('%Y%m%d')
+if not os.path.exists(save_path):
+    os.mkdir(save_path)
 
 
 def data_plot(ax, x, y, xlabel, ylabel, title="", color='r', is_grid=False):
@@ -38,7 +40,7 @@ def plot_data(pose_list, index=14):
     @return:
     """
     l = np.array(pose_list)
-    length = [i for i in range(len(pose_list))]
+    length = [i * 0.02 for i in range(len(pose_list))]
     fig = plt.figure()
     ax1 = fig.add_subplot(231)
     data_plot(ax1, x=length, y=l[:, index + 0], xlabel="step", ylabel="force_x  N", is_grid=True)
@@ -68,43 +70,58 @@ def plot_data(pose_list, index=14):
 # 20-26 测量力
 
 def main():
-    file_name = "../data/20221021/202210211016_robot.csv"
-
+    # file_name = "../data/20221021/202210211016_robot.csv"
+    # data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
+    # init_angle = data[0, 8:14]
     m = 400  # 质量系数
     k = 500  # 刚度系数
     b = 7500  # 阻尼系数
     rospy.init_node("control_node")
     rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.11")
-    data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
+
     file_2 = "trajectory/trajectory.csv"
-    init_angle = data[0, 8:14]
     # trajectory = data[:, 1:8]
     #
-    # file_2 = "trajectory2.csv"
-    # init_angle = [0.26145,-1.5196,-1.98123,-1.22225,1.57067,-0.554393]
+    file_2 = "trajectory2.csv"
+    init_angle = [0.26145, -1.5196, -1.98123, -1.22225, 1.57067, -0.554393]
 
     temp = np.loadtxt(open(file_2, "rb"), delimiter=",", skiprows=1)
     trajectory = temp
 
-    ## 横磨的好参数 0.4 0.4 0.1
-    lya = LyapunovEstimationImprove(alpha =1.8, beta =1.8,gamma= 0.6, initKe=7750, initXe=0.260950,dt = 0.02,Fd = -20)
+    #### 生成前几秒的期望力 ####
+    ntd = NTD(T=0.02, r=25, h=0.25, expect_force=-20)
+    feed_force = ntd.getResult(2)  # 得到前反馈力的表达式
+
+    ## 李雅普诺夫横磨的好参数 0.4 0.4 0.1
+    lya = LyapunovEstimationImprove(alpha=1.8, beta=1.8, gamma=0.6, initKe=7750, initXe=0.260950, dt=0.02, Fd=-20)
     admittance_control = Admittance_control(rtde_r, trajectory=trajectory, expect_force=-20, init_point=init_angle)
+
+    i = 0
     while admittance_control.over is False:
+        # 设置变化的期望力，以免引起冲击振荡
+        expect_force = -20
+        if i < len(feed_force):
+            admittance_control.setExpectForce(feed_force[i])
+            expect_force = feed_force[i]
+            i = i + 1
+
         admittance_control.update()
+
         F = admittance_control.actual_force[2]
         pose_Z = admittance_control.actual_pose[2]
-        # if admittance_control.index <= 350 or admittance_control.index >= 540:
-        #     v = 0
-        # else:
-        v = -0.00141
-        Zd = lya.getTraject(F, pose_Z,v)
+        if admittance_control.index <= 350 or admittance_control.index >= 540:
+            v = 0
+        else:
+            v = -0.00141
+        Zd = lya.getTraject(F, pose_Z, expect_force, v)
         admittance_control.setNextPoint(Zd)
         admittance_control.admittance(m=m, b=b, k=k)
     lya.finish()
-    path_name = '../data/20221027/' + datetime.now().strftime('%Y%m%d%H%M') + "_m" + str(
+    path_name = '../data/' + datetime.now().strftime('%Y%m%d') + '/' + datetime.now().strftime(
+        '%Y%m%d%H%M') + "_m" + str(
         m) + "_b" + str(b) + "_k" + str(k) + '_LyaAdv_real_robot.csv'
     pose_list = admittance_control.control_pose_list
-    np.savetxt(path_name, X=pose_list, fmt="%.6f",delimiter=',')
+    np.savetxt(path_name, X=pose_list, fmt="%.6f", delimiter=',')
     end_angle = [0.366, -1.67, -1.625, -1.428316981797554, 1.572, -0.358]
     admittance_control.robot_command.move_to_joint(end_angle, 5)
     plot_data(pose_list)

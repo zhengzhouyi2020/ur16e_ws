@@ -15,6 +15,14 @@ from src.real_control.script.robot_control import robot_client
 from src.real_control.script.ur16e_kinematics import Kinematic, mat2pose, get_Jacobi, axisangle2quat, pose2mat, \
     GravityCompensation
 
+import os
+
+from src.utils.NTD import NTD
+
+save_path = '../data/' + datetime.now().strftime('%Y%m%d')
+if not os.path.exists(save_path):
+    os.mkdir(save_path)
+
 
 # 这个程序使用过程中无法收敛
 def data_plot(ax, x, y, xlabel, ylabel, title="", color='r', is_grid=False):
@@ -177,8 +185,9 @@ class Admittance_control:
             print("position:{}".format(delta_p))
             print("force:{}".format(math.fabs(self.actual_force[2])))
             print("please check your parameter!")
+            print(self.index)
             exit(0)
-        self.robot_command.move_to_joint(joint_angles, self.control_step,wait=False)
+        self.robot_command.move_to_joint(joint_angles, self.control_step, wait=False)
         self.index += 1
         if self.index == len(self.trajectory) - 1:
             self.over = True
@@ -201,6 +210,10 @@ class Admittance_control:
         @return:
         """
         self.trajectory[self.index + 1][2] = Zd
+
+    def setExpectForce(self, expectForce):
+        """设置可变的期望力"""
+        self.expect_force = expectForce
 
     def getActualVel(self):
         qd = self.rtde_r.getActualQd()
@@ -226,15 +239,19 @@ def main():
     rospy.init_node("control_node")
     rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.11")
     data = np.loadtxt(open(file_name, "rb"), delimiter=",", skiprows=1)
-    file_2 = "trajectory/trajectory.csv"
-    init_angle = data[0, 8:14]
+    # file_2 = "trajectory/trajectory.csv"
+    # init_angle = data[0, 8:14]
     # trajectory = data[:, 1:8]
     #
-    # file_2 = "trajectory2.csv"
-    # init_angle = [0.26145,-1.5196,-1.98123,-1.22225,1.57067,-0.554393]
+    file_2 = "trajectory2.csv"
+    init_angle = [0.26145,-1.5196,-1.98123,-1.22225,1.57067,-0.554393]
 
     temp = np.loadtxt(open(file_2, "rb"), delimiter=",", skiprows=1)
     trajectory = temp
+
+    #### 生成前几秒的期望力 ####
+    ntd = NTD(T=0.02, r=100, h=0.1, expect_force=-20)
+    feed_force = ntd.getResult(2)  # 得到前反馈力的表达式
 
     admittance_control = Admittance_control(rtde_r, trajectory=trajectory, expect_force=-20, init_point=init_angle)
     m = 400
@@ -242,17 +259,23 @@ def main():
     ## k = 2000时开始出现稳态误差
     ratio = 30
     # b = 2 * ratio * math.sqrt(m * k)
-    b =7500
+    b = 7500
     # b = 15000 20000 稳定时间长，控制效果不佳
     # b = 8000 10000 效果不错，
     # b = 5000 超调量有点大
 
     # 最优参数 800 40000
+    i = 0
     while admittance_control.over is False:
+        # 设置变化的期望力，以免引起冲击振荡
+        if i < len(feed_force):
+            admittance_control.setExpectForce(feed_force[i])
+            i = i + 1
         admittance_control.update()
         admittance_control.admittance(m=m, b=b, k=k)
 
-    path_name = '../data/20221027/' + datetime.now().strftime('%Y%m%d%H%M') + "_m" + str(
+    path_name = '../data/' + datetime.now().strftime('%Y%m%d') + '/' + datetime.now().strftime(
+        '%Y%m%d%H%M') + "_m" + str(
         m) + "_b" + str(b) + "_k" + str(k) + '_real_robot.csv'
     pose_list = admittance_control.control_pose_list
     np.savetxt(path_name, X=pose_list, fmt="%.6f", delimiter=',')

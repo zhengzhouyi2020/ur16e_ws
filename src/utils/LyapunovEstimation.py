@@ -46,11 +46,15 @@ class LyapunovEstimation:
         self.Xd_list.append(Xd)
         return Xd
 
-
     def finish(self):
-        data = np.vstack([self.Xe_list,self.Ke_list,self.Xd_list]).T
-        path_name = '../data/20221027/' + datetime.now().strftime('%Y%m%d%H%M') + '_Lya_estimate.csv'
-        np.savetxt(path_name, X=data, fmt="%.6f",delimiter=',')
+        """
+        以时间为标准的文件保存
+        @return:
+        """
+        data = np.vstack([self.Xe_list, self.Ke_list, self.Xd_list]).T
+        path_name = '../data/' + datetime.now().strftime('%Y%m%d') + '/' + datetime.now().strftime(
+            '%Y%m%d%H%M') + '_Lya_estimate.csv'
+        np.savetxt(path_name, X=data, fmt="%.6f", delimiter=',')
 
 
 class LyapunovEstimationImprove:
@@ -75,13 +79,15 @@ class LyapunovEstimationImprove:
         self.Ke_list = []
         self.Xd_list = []
 
-    def getTraject(self, F, X, velocity = 0):
+    def getTraject(self, F, X, Fd, velocity=0):
         """
+        @param Fd:
         @param velocity: z方向的速度
         @param F: 传入的接触力
         @param X: 当前Z的位置
         @return: 在线生成的轨迹
         """
+        self.Fd = Fd
         f_wave = self.Ke * (X - self.Xe) - F
         self.Ke = self.Ke - self.alpha * X * f_wave * self.dt + self.gamma * f_wave * self.dt  # 估计的环境位置
         self.Xe = self.Xe + f_wave / self.Ke * (
@@ -94,5 +100,6 @@ class LyapunovEstimationImprove:
 
     def finish(self):
         data = np.vstack([self.Xe_list, self.Ke_list, self.Xd_list]).T
-        path_name = '../data/20221027/' + datetime.now().strftime('%Y%m%d%H%M') + '_LyaAdv_estimate.csv'
+        path_name = '../data/' + datetime.now().strftime('%Y%m%d') + '/' + datetime.now().strftime(
+            '%Y%m%d%H%M') + '_LyaAdv_estimate.csv'
         np.savetxt(path_name, X=data, fmt="%.6f", delimiter=',')
